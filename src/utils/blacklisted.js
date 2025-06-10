@@ -2,42 +2,54 @@ const redisClient = require("./redisClient");
 const { JWT_SECRET_KEY } = require("./secrets");
 const jwt = require("jsonwebtoken");
 
-const addBlackListed = async (refresh) => {
-  if (!refresh) {
-    return res
-      .status(400)
-      .send({ status: "error", message: "Refresh token is required" });
+const addBlackListed = async (refresh, access) => {
+  if (!refresh || !access) {
+    return {
+      status: "error",
+      message: "Access and refresh tokens are required",
+    };
   }
 
   try {
-    const decoded = jwt.verify(refresh, JWT_SECRET_KEY + "reffer");
+    // Расшифровываем refresh
+    const decodedRefresh = jwt.verify(refresh, JWT_SECRET_KEY + "reffer");
+    const decodedAccess = jwt.verify(access, JWT_SECRET_KEY);
 
     const now = Math.floor(Date.now() / 1000);
-    const tokenTTL = decoded.exp - now;
+    const refreshTTL = decodedRefresh.exp - now;
+    const accessTTL = decodedAccess.exp - now;
 
-    if (tokenTTL <= 0) {
-      return res
-        .status(400)
-        .send({ status: "error", message: "Refresh token is expired" });
+    if (refreshTTL <= 0 || accessTTL <= 0) {
+      return {
+        status: "error",
+        message: "One or both tokens are already expired",
+      };
     }
 
-    await redisClient.set(refresh, "blacklisted", { EX: tokenTTL });
-
-    const value = await redisClient.get(refresh);
-    console.log("Stored in Redis:", value);
+    // Сохраняем в Redis оба токена
+    await redisClient.set(refresh, "blacklisted", { EX: refreshTTL });
+    await redisClient.set(access, "blacklisted", { EX: accessTTL });
 
     return {
       status: "success",
-      message: "Logged out and tokens invalidated",
+      message: "Access and refresh tokens invalidated",
     };
   } catch (error) {
-    console.error(error);
+    console.error("Token verification error:", error);
     return {
       status: "error",
-      message: "Invalid refresh token",
+      message: "Invalid access or refresh token",
     };
   }
 };
+const checkBlackListed = async (refresh) => {
+  const isBlacklisted = await redisClient.get(refresh);
+  if (isBlacklisted) {
+    return true
+  }
+  return false
+}
 module.exports = {
   addBlackListed,
+  checkBlackListed
 };

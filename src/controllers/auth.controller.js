@@ -1,3 +1,4 @@
+
 const User = require("../models/user.model");
 const {
   hash: hashPassword,
@@ -8,10 +9,8 @@ const {
   generateRefresh,
   decodeRefresh,
 } = require("../utils/token");
-const redisClient = require("../utils/redisClient");
-const { JWT_SECRET_KEY } = require('../utils/secrets');
-const jwt = require('jsonwebtoken');
-const {addBlackListed} = require("../utils/blacklisted")
+const { addBlackListed, checkBlackListed } = require("../utils/blacklisted");
+
 exports.signup = (req, res) => {
   const { firstname, lastname, email, password } = req.body;
   const hashedPassword = hashPassword(password.trim());
@@ -25,22 +24,32 @@ exports.signup = (req, res) => {
 
   User.create(user, (err, data) => {
     if (err) {
-      res.status(500).send({
+      return res.status(500).send({
         status: "error",
         message: err.message,
       });
-    } else {
-      const access = generateAccess(data.id);
-      const refresh = generateRefresh(data.id);
-      res.status(201).send({
+    }
+
+    const access = generateAccess(data.id);
+    const refresh = generateRefresh(data.id);
+
+    res
+      .cookie("refresh", refresh, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "Strict",
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 дней
+      })
+      .status(201)
+      .send({
         status: "success",
         data: {
           access,
-          refresh,
-          data,
+          firstname: data.firstname,
+          lastname: data.lastname,
+          email: data.email,
         },
       });
-    }
   });
 };
 
@@ -49,32 +58,39 @@ exports.signin = (req, res) => {
   User.findByEmail(email.trim(), (err, data) => {
     if (err) {
       if (err.kind === "not_found") {
-        res.status(404).send({
+        return res.status(404).send({
           status: "error",
           message: `User with email ${email} was not found`,
         });
-        return;
       }
-      res.status(500).send({
+      return res.status(500).send({
         status: "error",
         message: err.message,
       });
-      return;
     }
-    if (data) {
-      if (comparePassword(password.trim(), data.password)) {
-        const token = generateAccess(data.id);
-        res.status(200).send({
+
+    if (comparePassword(password.trim(), data.password)) {
+      const access = generateAccess(data.id);
+      const refresh = generateRefresh(data.id);
+
+      res
+        .cookie("refresh", refresh, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "Strict",
+          maxAge: 7 * 24 * 60 * 60 * 1000, // 7 дней
+        })
+        .status(200)
+        .send({
           status: "success",
           data: {
-            token,
+            access,
             firstname: data.firstname,
             lastname: data.lastname,
             email: data.email,
           },
         });
-        return;
-      }
+    } else {
       res.status(401).send({
         status: "error",
         message: "Incorrect password",
@@ -83,13 +99,22 @@ exports.signin = (req, res) => {
   });
 };
 
-exports.refreshToken = (req, res) => {
-  const { refresh } = req.body;
+exports.refreshToken = async (req, res) => {
 
+  const refresh = req.cookies.refresh;
+  
   if (!refresh) {
     return res.status(400).send({
       status: "error",
       message: "Refresh token is required",
+    });
+  }
+
+  const blacklisted = await checkBlackListed(refresh);
+  if (blacklisted) {
+    return res.status(401).send({
+      status: "error",
+      message: "Refresh token is blacklisted",
     });
   }
 
@@ -113,7 +138,17 @@ exports.refreshToken = (req, res) => {
 };
 
 exports.logout = async (req, res) => {
-  const { refresh } = req.body;
-  const response = await addBlackListed(refresh)
-  res.send(response)
+  const refresh = req.cookies.refresh;
+  const access = req.headers.authorization?.split(" ")[1];
+
+  if (!refresh || !access) {
+    return res.status(400).send({
+      status: "error",
+      message: "Access and refresh tokens are required",
+    });
+  }
+
+  const result = await addBlackListed(refresh, access);
+  res.status(result.status === "success" ? 200 : 400).send(result);
 };
+

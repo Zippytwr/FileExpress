@@ -1,7 +1,8 @@
 const express = require('express');
 const morgan = require('morgan');
 const cors = require('cors');
-
+const cookieParser = require("cookie-parser");
+const protectedRoutes = require("./routes/protected.route")
 const authRoute = require('./routes/auth.route');
 
 const { httpLogStream } = require('./utils/logger');
@@ -12,10 +13,16 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(morgan('dev'));
 app.use(morgan('combined', { stream: httpLogStream }));
-app.use(cors());
+app.use(cors(
+    {
+        origin: "*", // или "*" для Postman
+        credentials: true,
+    }
+));
+app.use(cookieParser());
 
+app.use("/api", protectedRoutes);
 app.use('/api/auth', authRoute);
-
 app.get('/', (req, res) => {
     res.status(200).send({
         status: "success",
