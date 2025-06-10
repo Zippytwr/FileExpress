@@ -10,6 +10,6 @@ router.route('/signup')
 
 router.route('/signin')
     .post(signinValidator, asyncHandler(authController.signin));
-router.route('/signin/new_token').post(asyncHandler(authController.refreshToken))
+router.route('/signin/newtoken').post(asyncHandler(authController.refreshToken))
 router.route('/logout').post(asyncHandler(authController.logout))
 module.exports = router;
