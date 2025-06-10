@@ -20,7 +20,7 @@ const addBlackListed = async (refresh) => {
         .status(400)
         .send({ status: "error", message: "Refresh token is expired" });
     }
-
+    
     await redisClient.set(refresh, "blacklisted", { EX: tokenTTL });
 
     const value = await redisClient.get(refresh);
