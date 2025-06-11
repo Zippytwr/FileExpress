@@ -1,13 +1,27 @@
+const db = require('../../config/db.config');
 const { logger } = require('../../utils/logger');
-const { createTableUSers: createTableUSersQuery } = require('../queries');
+const { createTableUsers, createTableFiles } = require('../queries');
 
-(() => {    
-   require('../../config/db.config').query(createTableUSersQuery, (err, _) => {
+(() => {
+    if (!createTableUsers || !createTableFiles) {
+        logger.error("Один из SQL-запросов пустой!");
+        process.exit(1);
+    }
+
+    db.query(createTableUsers, (err, _) => {
         if (err) {
-            logger.error("Ошибка перед созданием ", err.message);
+            logger.error("Ошибка при создании таблицы users: ", err);
             return;
         }
-        logger.info('Table users created!');
-        process.exit(0);
+        logger.info('Таблица users создана!');
+
+        db.query(createTableFiles, (err2, _) => {
+            if (err2) {
+                logger.error("Ошибка при создании таблицы files: ", err2);
+                return;
+            }
+            logger.info('Таблица files создана!');
+            process.exit(0);
+        });
     });
 })();
